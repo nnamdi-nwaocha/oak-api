@@ -1,88 +1,72 @@
 import { Router } from "@oak/oak/router";
-import type { Book } from "../types/books.types.ts";
 import type { CreateBookDTO } from "../dto/book.dto.ts";
-const kv = await Deno.openKv();
+import { DB } from "https://deno.land/x/sqlite/mod.ts";
+import type { Book } from "../types/books.types.ts";
+import { CreateBook, getBookById, getbooks, updateBook } from "../services/books.service.ts";
+import { AppError } from "../types/index.ts";
+
+const db = new DB("books.db");
+
+db.query(`
+  CREATE TABLE IF NOT EXISTS books (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    author TEXT NOT NULL,
+    description TEXT
+  )
+`);
 
 const bookRouter = new Router;
 
-bookRouter.get('/books', async (context) => {
-    const entries = kv.list({ prefix: ["books"] });
-    console.log(entries)
-    const books: Book[] = []
-    for await (const entry of entries) {
-        books.push(entry.value as Book)
+bookRouter.get("/books", (context) => {
+    const books = getbooks();
+    if (!books) {
+        throw new AppError("Books not found", 404);
     }
-    context.response.body = books;
-})
+    context.response.body = { message: "Books retrieved Successfully", books };
+});
 
 bookRouter.post("/books", async (context) => {
     const body: CreateBookDTO = await context.request.body.json();
-    const uuid = crypto.randomUUID();
-    if (!body.title || !body.author || !body.description) {
-        context.response.status = 400; // Bad Request
-        context.response.body = { message: "Missing required fields" };
-        return;
+    const createdBook = CreateBook(body);
+    if (!createdBook) {
+        throw new AppError("Unable to create book", 500);
     }
-
-
-    const newBook: Book = {
-        id: uuid,
-        ...body,
-    };
-
-    const result = await kv.set(["books", uuid], newBook);
-    console.log(result)
-
-    context.response.status = 201; // Created
-    context.response.body = { message: "Book added", book: newBook };
+    context.response.body = { message: "Book created successfully", book: createdBook };
 });
 
-bookRouter.get('/books/:id', async (context) => {
-    const id = context.params.id;
-    const entry = await kv.get(["books", id]);
-    const book = entry.value
-    if (book) {
-        context.response.body = book as Book;
-    } else {
-        context.response.status = 404;
-        context.response.body = { message: "Book not found" };
-    }
-})
-
-bookRouter.put('/books/:id', async (context) => {
-    const id = context.params.id;
+bookRouter.put("/books/:id", async (context) => {
+    const id = parseInt(context.params.id);
     const body: Partial<CreateBookDTO> = await context.request.body.json();
-    const entry = await kv.get(["books", id]);
-    const book = entry.value;
-    if (!book) {
-        context.response.status = 404;
-        context.response.body = { message: "Book not found" };
-        return;
+    const updatedBook = updateBook({ id, updates: body })
+
+    if (!updatedBook) {
+        throw new AppError("Could not update book", 500);
     }
 
-    const updatedBook = { ...book, ...body };
-    const result = await kv.set(["books", id], updatedBook);
-    console.log(result.ok)
+    context.response.body = { message: "Book updated successfully", book: updatedBook };
+});
 
-    context.response.status = 200;
-    context.response.body = { message: "Book updated", book: updatedBook };
-})
 
-bookRouter.delete("/books/:id", async (context) => {
-    const id = context.params.id;
-
-    const entry = await kv.get(["books", id]);
-    const book = entry.value;
-
+bookRouter.get("/books/:id", (context) => {
+    const id = parseInt(context.params.id);
+    const book = getBookById(id);
     if (!book) {
-        context.response.status = 404;
-        context.response.body = { message: "Book not found" };
-        return;
+        throw new AppError("Book not found", 404);
+    }
+    context.response.body = { message: "Book retrieved successfully", book };
+});
+
+bookRouter.delete("/books/:id", (context) => {
+    const id = parseInt(context.params.id);
+    const book = getBookById(id)
+    if (!book) {
+        throw new AppError("Book not found", 404);
     }
 
-    await kv.delete(["books", id]);
-    context.response.status = 200;
-    context.response.body = { message: "Book deleted", book };
+    db.query("DELETE FROM books WHERE id = ?", [id]);
+
+    context.response.body = { message: "Book deleted successfully", book };
 });
 
 

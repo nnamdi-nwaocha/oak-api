@@ -1,6 +1,6 @@
 {
   "tasks": {
-    "dev": "deno run --watch --unstable-kv main.ts"
+    "dev": "deno run --watch --unstable-kv -A main.ts"
   },
   "imports": {
     "@oak/oak": "jsr:@oak/oak@^17.1.0",
